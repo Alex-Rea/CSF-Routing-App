@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+  .container-wrapper { display: flex; width: 100%; gap: 20px; justify-content: center; }
+  .container { width: 45%; }
+  .location-list, .selected-list { list-style: none; padding: 0; }
+  .location-item, .selected-item { padding: 5px; border: 1px solid #ccc; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between; }
+  #selectedContainer { border-left: 1px solid #ccc; padding-left: 20px; }
+  .search-input { width: 100%; padding: 5px; margin-bottom: 10px; }
+  #map { width: 80%; height: 400px; margin-top: 20px; }
+  .reorder-buttons { display: flex; gap: 5px; }
+
+  /* Increase checkbox size */
+  .location-checkbox {
+    width: 20px;
+    height: 20px;
+    transform: scale(1.5); /* Increase scale as needed */
+    margin-right: 10px;
+  }
+</style>
+
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyA72qUciyG6M6z9oOX8Ym7G_LDIoLkJ_M0"></script>
+  <script>
+    let map;
+    const markers = [];
+
+    async function loadLocations() {
+      const locations = await google.script.run.withSuccessHandler(displayLocations).getLocations();
+    }
+
+    function displayLocations(locations) {
+      const locationContainer = document.getElementById("locationContainer");
+      locationContainer.innerHTML = '';
+      locations.forEach(location => {
+        const li = document.createElement("li");
+        li.className = "location-item";
+        li.innerHTML = `
+          <input type="checkbox" class="location-checkbox" data-id="${location.id}" onclick="selectLocation(this, '${location.name}')">
+          ${location.name}
+        `;
+        locationContainer.appendChild(li);
+      });
+    }
+
+    function selectLocation(checkbox, name) {
+      const selectedContainer = document.getElementById("selectedContainer");
+      const id = checkbox.dataset.id;
+      
+      if (checkbox.checked) {
+        // Add to selected list
+        const li = document.createElement("li");
+        li.className = "selected-item";
+        li.dataset.id = id;
+        li.dataset.name = name;
+        li.innerHTML = `
+          <span class="name">${name}</span>
+          <div class="reorder-buttons">
+            <button onclick="moveUp(this)">⬆️</button>
+            <button onclick="moveDown(this)">⬇️</button>
+          </div>
+        `;
+        selectedContainer.appendChild(li);
+        addMarker(name);
+        updateNumbers();
+      } else {
+        // Remove from selected list
+        const item = Array.from(selectedContainer.children).find(li => li.dataset.id === id);
+        if (item) selectedContainer.removeChild(item);
+        removeMarker(name);
+        updateNumbers();
+      }
+    }
+
+    function updateNumbers() {
+      const selectedItems = document.querySelectorAll("#selectedContainer .selected-item");
+      selectedItems.forEach((item, index) => {
+        item.querySelector(".name").textContent = `${index + 1}. ${item.dataset.name}`;
+      });
+    }
+
+    function moveUp(button) {
+      const li = button.closest("li");
+      const prev = li.previousElementSibling;
+      if (prev) {
+        li.parentNode.insertBefore(li, prev);
+        updateNumbers();
+      }
+    }
+
+    function moveDown(button) {
+      const li = button.closest("li");
+      const next = li.nextElementSibling;
+      if (next) {
+        li.parentNode.insertBefore(next, li);
+        updateNumbers();
+      }
+    }
+
+    async function sendLink() {
+      const selectedItems = Array.from(document.querySelectorAll("#selectedContainer .selected-item"));
+      const selectedNames = selectedItems.map(item => item.dataset.name);
+
+      const link = await google.script.run.sendRouteLink(selectedNames);
+      alert(`Route link sent to Google Chat: ${link}`);
+    }
+
+    function searchLocations() {
+      const searchValue = document.getElementById("searchInput").value.toLowerCase();
+      const locationItems = document.querySelectorAll(".location-item");
+      locationItems.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        item.style.display = text.includes(searchValue) ? "" : "none";
+      });
+    }
+
+    // Initialize Google Map
+    function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 36.1699, lng: -115.1398 }, // Default center (Las Vegas, adjust as needed)
+        zoom: 12,
+      });
+    }
+
+    // Add a marker to the map for a selected location
+    function addMarker(name) {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ address: name }, (results, status) => {
+        if (status === "OK") {
+          const marker = new google.maps.Marker({
+            position: results[0].geometry.location,
+            map: map,
+            title: name,
+          });
+          markers.push({ name, marker });
+          map.setCenter(results[0].geometry.location); // Center the map on the latest marker
+        } else {
+          console.error("Geocode was not successful for the following reason: " + status);
+        }
+      });
+    }
+
+    // Remove a marker from the map when a location is deselected
+    function removeMarker(name) {
+      const markerIndex = markers.findIndex(item => item.name === name);
+      if (markerIndex > -1) {
+        markers[markerIndex].marker.setMap(null); // Remove the marker from the map
+        markers.splice(markerIndex, 1); // Remove from the markers array
+      }
+    }
+
+    window.onload = function() {
+      loadLocations();
+      initMap();
+    };
+  </script>
+</head>
+<body>
+  <div class="container-wrapper">
+    <div class="container">
+      <h3>All Locations</h3>
+      <input type="text" id="searchInput" class="search-input" oninput="searchLocations()" placeholder="Search locations">
+      <ul id="locationContainer" class="location-list"></ul>
+    </div>
+    
+    <div class="container" id="selectedContainer">
+      <h3>Selected Locations (Reorder)</h3>
+      <ul class="selected-list"></ul>
+      <button onclick="sendLink()">Send Link</button>
+    </div>
+  </div>
+  
+  <div id="map"></div>
+</body>
+</html>
